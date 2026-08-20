@@ -1,0 +1,97 @@
+<?php
+// =============================================================
+// NATIVE PRODUCT ADD-ONS & CURRENCY CONVERSION
+// =============================================================
+
+/**
+ * Convert an amount from the store's BASE currency to the active
+ * WooPayments currency. Degrades gracefully — never fatals.
+ */
+function ss_to_active_currency( $amount_in_base ) {
+    $amount_in_base = (float) $amount_in_base;
+
+    $mc = null;
+    if ( function_exists( 'WC_Payments_Multi_Currency' ) ) {
+        $mc = WC_Payments_Multi_Currency();
+    } elseif ( class_exists( '\WCPay\MultiCurrency\MultiCurrency' )
+               && is_callable( array( '\WCPay\MultiCurrency\MultiCurrency', 'instance' ) ) ) {
+        $mc = \WCPay\MultiCurrency\MultiCurrency::instance();
+    }
+    if ( ! $mc ) {
+        return $amount_in_base; // Multi-currency not active → nothing to convert.
+    }
+
+    // Preferred: WooPayments' own converter (same rate + rounding as products).
+    if ( is_callable( array( $mc, 'get_price' ) ) ) {
+        try {
+            $converted = (float) $mc->get_price( $amount_in_base, 'product' );
+            if ( $converted > 0 ) {
+                return $converted;
+            }
+        } catch ( \Throwable $e ) {}
+    }
+
+    // Fallback: multiply by the active currency's exchange rate.
+    if ( is_callable( array( $mc, 'get_selected_currency' ) ) ) {
+        try {
+            $currency = $mc->get_selected_currency();
+            if ( $currency && is_callable( array( $currency, 'get_rate' ) ) ) {
+                $rate = (float) $currency->get_rate();
+                if ( $rate > 0 ) {
+                    return round( $amount_in_base * $rate, wc_get_price_decimals() );
+                }
+            }
+        } catch ( \Throwable $e ) {}
+    }
+
+    return $amount_in_base;
+}
+
+/** Expedited fee, in the store's BASE currency (EUR). */
+function ss_expedited_base_fee() {
+    return 100;
+}
+
+// 1. Output ONLY the Expedited checkbox in the add-to-cart form
+add_action( 'woocommerce_before_add_to_cart_button', 'ss_native_product_addons', 15 );
+function ss_native_product_addons() {
+    global $product;
+    if ( ! $product ) return;
+
+    $exp_converted = ss_to_active_currency( ss_expedited_base_fee() );
+    echo '<div class="ss-addon">';
+    echo   '<label class="ss-addon-check">';
+    echo     '<input type="checkbox" name="ss_expedited" id="ss_expedited" value="yes">';
+    echo     '<span class="ss-addon-copy">';
+    echo       '<strong class="ss-addon-title">⚡ Expedited <span class="ss-addon-price">(+' . wp_kses_post( wc_price( $exp_converted ) ) . ')</span></strong>';
+    echo     '</span>';
+    echo   '</label>';
+    echo '</div>';
+}
+
+// 2. Save expedited flag into the cart item
+add_filter( 'woocommerce_add_cart_item_data', 'ss_add_addon_cart_data', 10, 2 );
+function ss_add_addon_cart_data( $cart_item_data, $product_id ) {
+    if ( isset( $_POST['ss_expedited'] ) && $_POST['ss_expedited'] === 'yes' ) {
+        $cart_item_data['ss_expedited'] = 'yes';
+    }
+    return $cart_item_data;
+}
+
+// 3. Add the Expedited fee — converted, scaled by expedited quantity
+add_action( 'woocommerce_cart_calculate_fees', 'ss_add_expedited_fee' );
+function ss_add_expedited_fee( $cart ) {
+    if ( is_admin() && ! wp_doing_ajax() ) return;
+    if ( ! $cart instanceof WC_Cart ) return;
+
+    $expedited_qty = 0;
+    foreach ( $cart->get_cart() as $cart_item ) {
+        if ( ! empty( $cart_item['ss_expedited'] ) && $cart_item['ss_expedited'] === 'yes' ) {
+            $expedited_qty += (int) $cart_item['quantity'];
+        }
+    }
+    if ( $expedited_qty < 1 ) return;
+
+    $unit_fee = ss_to_active_currency( ss_expedited_base_fee() );
+    $cart->add_fee( 'Expedited Production & Shipping', $unit_fee * $expedited_qty, false );
+}

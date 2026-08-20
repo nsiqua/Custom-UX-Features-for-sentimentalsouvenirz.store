@@ -1,0 +1,62 @@
+// Single product — native live price preview (reflects quantity + expedited)
+if (document.body.classList.contains('single-product')) {
+  var topPrice    = document.querySelector('.entry-summary p.price, .entry-summary .price');
+  var stickyPrice = document.querySelector('.ss-sticky-atc-price');
+  var expCheckbox = document.getElementById('ss_expedited');
+  var qtyInput    = document.querySelector('form.cart input.qty');
+
+  if (topPrice && window.ssPriceFmt) {
+    var f             = window.ssPriceFmt;
+    var isVariable    = window.ssIsVariable === true;
+    var rangeHTML     = topPrice.innerHTML; 
+    var feeFloat      = (typeof window.ssExpeditedFloat !== 'undefined') ? window.ssExpeditedFloat : 0;
+    var unitBaseFloat = isVariable ? 0 : ((typeof window.ssBaseFloat !== 'undefined') ? window.ssBaseFloat : 0);
+
+    function ssFormatPrice(amount) {
+      var negative = amount < 0;
+      amount = Math.abs(amount);
+      var parts   = amount.toFixed(f.decimals).split('.');
+      var intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, f.thousandSep);
+      var numStr  = (f.decimals > 0) ? intPart + f.decimalSep + parts[1] : intPart;
+      var body    = f.priceFormat.split('%1$s').join(f.symbol).split('%2$s').join(numStr);
+      return '<span class="woocommerce-Price-amount amount"><bdi>' + (negative ? '-' : '') + body + '</bdi></span>';
+    }
+
+    function ssQty() {
+      var q = qtyInput ? parseInt(qtyInput.value, 10) : 1;
+      return (isNaN(q) || q < 1) ? 1 : q;
+    }
+
+    function ssRender() {
+      var expOn = expCheckbox && expCheckbox.checked;
+      if (unitBaseFloat > 0) {
+        var perUnit = unitBaseFloat + (expOn ? feeFloat : 0);
+        var html    = ssFormatPrice(perUnit * ssQty());
+        topPrice.innerHTML = html;
+        if (stickyPrice) stickyPrice.innerHTML = html;
+      } else {
+        topPrice.innerHTML = rangeHTML; 
+        if (stickyPrice) stickyPrice.innerHTML = rangeHTML;
+      }
+    }
+
+    var $ = window.jQuery;
+    if ($) {
+      $('.variations_form').on('found_variation', function(e, variation) {
+        unitBaseFloat = parseFloat(variation.display_price) || 0;
+        ssRender();
+      });
+      $('.variations_form').on('reset_data hide_variation', function() {
+        unitBaseFloat = isVariable ? 0 : ((typeof window.ssBaseFloat !== 'undefined') ? window.ssBaseFloat : 0);
+        ssRender();
+      });
+    }
+
+    if (expCheckbox) expCheckbox.addEventListener('change', ssRender);
+    if (qtyInput) {
+      qtyInput.addEventListener('change', ssRender);
+      qtyInput.addEventListener('input',  ssRender);
+    }
+    ssRender();
+  }
+}

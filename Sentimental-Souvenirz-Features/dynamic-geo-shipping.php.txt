@@ -1,0 +1,70 @@
+<?php
+// ==============================================================================
+// DYNAMIC DELIVERY ESTIMATES (SIDE-BY-SIDE WITH PRICE)
+// ==============================================================================
+
+// 1. Remove the native WooCommerce price output
+remove_action( 'woocommerce_single_product_summary', 'woocommerce_template_single_price', 10 );
+
+// 2. Inject a custom wrapper containing BOTH the price and the dynamic estimates
+add_action( 'woocommerce_single_product_summary', 'ss_custom_price_and_estimates', 10 );
+function ss_custom_price_and_estimates() {
+    echo '<div class="ss-price-estimates-wrapper">';
+    
+    // Output the native WooCommerce price on the left
+    echo '<div class="ss-price-container">';
+    woocommerce_template_single_price();
+    echo '</div>';
+    
+    // Output our simplified delivery estimates on the right
+    ?>
+    <div class="ss-delivery-estimates">
+        <div class="ss-est-row">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span><strong>Arrives soon!</strong> Get it by <strong class="ss-date-soon">calculating...</strong></span>
+        </div>
+        <div class="ss-est-row">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span><strong>Get it Faster!</strong> Expedited by <strong class="ss-date-fast">calculating...</strong></span>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Function to mathematically add business days (skipping weekends)
+        function addBusinessDays(days) {
+            let d = new Date();
+            let added = 0;
+            while (added < days) {
+                d.setDate(d.getDate() + 1);
+                if (d.getDay() !== 0 && d.getDay() !== 6) { added++; }
+            }
+            return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+        }
+
+        // Apply mathematical logic based on location (EU vs Non-EU)
+        function updateDates(isEU) {
+            let sMin = isEU ? 10 : 21; let sMax = isEU ? 15 : 25;
+            let fMin = isEU ? 5 : 7;   let fMax = isEU ? 7 : 10;
+            
+            let elSoon = document.querySelector('.ss-date-soon');
+            let elFast = document.querySelector('.ss-date-fast');
+            if (elSoon) elSoon.textContent = addBusinessDays(sMin) + ' - ' + addBusinessDays(sMax);
+            if (elFast) elFast.textContent = addBusinessDays(fMin) + ' - ' + addBusinessDays(fMax);
+        }
+
+        // Blazing-fast, non-blocking plaintext IP lookup (0ms latency, skips caching)
+        fetch('https://get.geojs.io/v1/ip/country')
+            .then(response => response.text())
+            .then(country => {
+                const euCodes = ['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'];
+                updateDates(euCodes.includes(country.trim()));
+            })
+            .catch(() => {
+                updateDates(true); // Fallback to EU standard if user runs aggressive adblockers
+            });
+    });
+    </script>
+    <?php
+    echo '</div>'; // close the side-by-side wrapper
+}
